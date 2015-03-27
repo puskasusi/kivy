@@ -41,6 +41,7 @@ __all__ = ('Spinner', 'SpinnerOption')
 from kivy.compat import string_types
 from kivy.factory import Factory
 from kivy.properties import ListProperty, ObjectProperty, BooleanProperty
+from kivy.properties import StringProperty
 from kivy.uix.button import Button
 from kivy.uix.dropdown import DropDown
 
@@ -103,9 +104,24 @@ class Spinner(Button):
     .. versionadded:: 1.4.0
     '''
 
+    orientation = StringProperty('vertical')
+    '''By default the spinner opens in vertical direction, up or down, depending
+    on available space.
+
+    :atts:`orientation` is a :class:`~kivy.properties.StringProperty` and
+    defaults to 'vertical', use 'horizontal' for spinners opening to the
+    left or right.
+
+    .. versionadded:: 1.9.0
+    '''
+
     def __init__(self, **kwargs):
         self._dropdown = None
+
+        if 'orientation' in kwargs:
+            self.orientation = kwargs.get('orientation')
         super(Spinner, self).__init__(**kwargs)
+
         self.bind(
             on_release=self._toggle_dropdown,
             dropdown_cls=self._build_dropdown,
@@ -122,7 +138,7 @@ class Spinner(Button):
         cls = self.dropdown_cls
         if isinstance(cls, string_types):
             cls = Factory.get(cls)
-        self._dropdown = cls()
+        self._dropdown = cls(orientation=self.orientation)
         self._dropdown.bind(on_select=self._on_dropdown_select)
         self._dropdown.bind(on_dismiss=self._close_dropdown)
         self._update_dropdown()
@@ -134,7 +150,11 @@ class Spinner(Button):
             cls = Factory.get(cls)
         dp.clear_widgets()
         for value in self.values:
-            item = cls(text=value)
+            if self.orientation == 'vertical':
+                item = cls(text=value, size_hint=(None, None))
+            else:
+                item = cls(text=value, size_hint=(None, None))
+
             item.bind(on_release=lambda option: dp.select(option.text))
             dp.add_widget(item)
 
@@ -154,3 +174,42 @@ class Spinner(Button):
         else:
             if self._dropdown.attach_to:
                 self._dropdown.dismiss()
+
+if __name__ == '__main__':
+    from kivy.base import runTouchApp
+    from kivy.uix.floatlayout import FloatLayout
+    layout = FloatLayout()
+
+    spinner_ver = Spinner(
+        # default value shown
+        text='Home',
+        # available values
+        values=('Home', 'Work', 'Other', 'Custom', 'Option 5',
+            'Option 6', 'Option 7', 'Option 8', 'Option 9', 'Option 10'),
+        # just for positioning in our example
+        size_hint=(None, None),
+        size=(100, 44),
+        pos_hint={'center_x': .7, 'center_y': .5})
+
+    spinner_hor = Spinner(
+        # default value shown
+        text='Home',
+        # available values
+        values=('Home', 'Work', 'Other', 'Custom', 'Option 5',
+            'Option 6', 'Option 7', 'Option 8', 'Option 9', 'Option 10'),
+        # just for positioning in our example
+        size_hint=(None, None),
+        size=(100, 44),
+        orientation='horizontal',
+        pos_hint={'center_x': .2, 'center_y': .5})
+
+    def show_selected_value(spinner, text):
+        print('Spinner ', spinner, ' selected text:', text)
+
+    spinner_ver.bind(text=show_selected_value)
+    spinner_hor.bind(text=show_selected_value)
+
+    layout.add_widget(spinner_ver)
+    layout.add_widget(spinner_hor)
+
+    runTouchApp(layout)

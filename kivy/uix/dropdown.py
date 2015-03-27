@@ -12,6 +12,9 @@ images etc.
 The positioning of the drop-down list is fully automatic: we will always try to
 place the dropdown list in a way that the user can select an item in the list.
 
+The list can be scrolled in case there is not enough space on the screen to
+show all items of the drop-down list.
+
 Basic example
 -------------
 
@@ -90,17 +93,23 @@ And then, create the associated python class and use it::
 __all__ = ('DropDown', )
 
 from kivy.uix.scrollview import ScrollView
-from kivy.properties import ObjectProperty, NumericProperty, BooleanProperty
+from kivy.properties import ObjectProperty, NumericProperty, BooleanProperty, StringProperty
 from kivy.core.window import Window
 from kivy.lang import Builder
 
-_grid_kv = '''
+_grid_kv_vertical = '''
 GridLayout:
     size_hint_y: None
     height: self.minimum_size[1]
     cols: 1
 '''
 
+_grid_kv_horizontal = '''
+GridLayout:
+    size_hint_x: None
+    width: self.minimum_size[0]
+    rows: 1
+'''
 
 class DropDownException(Exception):
     '''DropDownException class.
@@ -123,20 +132,33 @@ class DropDown(ScrollView):
             touching outside the widget.
     '''
 
+    orientation = StringProperty('vertical')
+
     auto_width = BooleanProperty(True)
-    '''By default, the width of the dropdown will be the same as the width of
-    the attached widget. Set to False if you want to provide your own width.
+    '''If orientation is vertical the width of the dropdown will be the same
+    as the width of the attached widget. Set to False if you want to provide
+    your own width.
+    '''
+    auto_height = BooleanProperty(True)
+    '''If orientation is horizontal then auto_height sets the height to the same
+    as the height of the attached widget.
+
     '''
 
     max_height = NumericProperty(None, allownone=True)
     '''Indicate the maximum height that the dropdown can take. If None, it will
     take the maximum height available until the top or bottom of the screen
-    is reached.
+    is reached. This is only used in case orientation is set to vertical.
 
     :attr:`max_height` is a :class:`~kivy.properties.NumericProperty` and
     defaults to None.
     '''
+    max_width = NumericProperty(None, allownone=True)
+    '''If orientation is set to vertical max_width indicates the width the drop down
+    can take. If not set it will try to use the maximum available space until the left
+    or right edge of the screen is reached.
 
+    '''
     dismiss_on_select = BooleanProperty(True)
     '''By default, the dropdown will be automatically dismissed when a
     selection has been done. Set to False to prevent the dismiss.
@@ -172,12 +194,32 @@ class DropDown(ScrollView):
     __events__ = ('on_select', 'on_dismiss')
 
     def __init__(self, **kwargs):
+        
+        if 'orientation' in kwargs:
+            self.orientation=kwargs.get('orientation')
+        if 'auto_height' in kwargs:
+            self.auto_height=kwargs.get('auto_height')
+        if 'max_width' in kwargs:
+            self.max_width=kwargs.get('max_width')
+
+
         self._win = None
         if 'container' not in kwargs:
-            c = self.container = Builder.load_string(_grid_kv)
+            if self.orientation == 'vertical':
+                c = self.container = Builder.load_string(_grid_kv_vertical)
+            elif self.orientation == 'horizontal':
+                c = self.container = Builder.load_string(_grid_kv_horizontal)
+            else:
+                # should throw an argument exception or something
+                raise DropDownException(
+                    'Invalid orientation: {}'.format(self.orientation))
+
         else:
             c = None
+
+        kwargs.setdefault('do_scroll_y', False)
         kwargs.setdefault('do_scroll_x', False)
+
         if 'size_hint' not in kwargs:
             kwargs.setdefault('size_hint_x', None)
             kwargs.setdefault('size_hint_y', None)
@@ -247,12 +289,21 @@ class DropDown(ScrollView):
         pass
 
     def _container_minimum_size(self, instance, size):
-        if self.max_height:
-            self.height = min(size[1], self.max_height)
-            self.do_scroll_y = size[1] > self.max_height
+        if self.orientation == 'vertical':
+            if self.max_height:
+                self.height = min(size[1], self.max_height)
+                self.do_scroll_y = size[1] > self.max_height
+            else:
+                self.height = size[1]
+                self.do_scroll_y = True
         else:
-            self.height = size[1]
-            self.do_scroll_y = True
+            # horizontal
+            if self.max_width:
+                self.width = min(size[0], self.max_width)
+                self.do_scroll_x = size[0] > self.max_width
+            else:
+                self.width = size[0]
+                self.do_scroll_x = True
 
     def add_widget(self, *largs):
         if self.container:
@@ -297,56 +348,114 @@ class DropDown(ScrollView):
         wx, wy = widget.to_window(*widget.pos)
         wright, wtop = widget.to_window(widget.right, widget.top)
 
-        # set width and x
-        if self.auto_width:
-            self.width = wright - wx
+        if self.orientation == 'vertical':
+            # set width and x
+            if self.auto_width:
+                self.width = wright - wx
 
-        # ensure the dropdown list doesn't get out on the X axis, with a
-        # preference to 0 in case the list is too wide.
-        x = wx
-        if x + self.width > win.width:
-            x = win.width - self.width
-        if x < 0:
-            x = 0
-        self.x = x
+            # ensure the dropdown list doesn't get out on the X axis, with a
+            # preference to 0 in case the list is too wide.
+            x = wx
+            if x + self.width > win.width:
+                x = win.width - self.width
+            if x < 0:
+                x = 0
+            self.x = x
 
-        # determine if we display the dropdown upper or lower to the widget
-        h_bottom = wy - self.height
-        h_top = win.height - (wtop + self.height)
-        if h_bottom > 0:
-            self.top = wy
-        elif h_top > 0:
-            self.y = wtop
-        else:
-            # none of both top/bottom have enough place to display the
-            # widget at the current size. Take the best side, and fit to
-            # it.
-            height = max(h_bottom, h_top)
-            if height == h_bottom:
+            # determine if we display the dropdown upper or lower to the widget
+            h_bottom = wy - self.height
+            h_top = win.height - (wtop + self.height)
+            if h_bottom > 0:
                 self.top = wy
-                self.height = wy
-            else:
+            elif h_top > 0:
                 self.y = wtop
-                self.height = win.height - wtop
+            else:
+                # none of both top/bottom have enough place to display the
+                # widget at the current size. Take the best side, and fit to
+                # it.
+                height = max(h_bottom, h_top)
+                if height == h_bottom:
+                    self.top = wy
+                    self.height = wy
+                else:
+                    self.y = wtop
+                    self.height = win.height - wtop
+        else:
+            # set height and y
+            if self.auto_height:
+                self.height = wtop - wy
 
+            # ensure the dropdown list doesn't get out on the Y axis, with a
+            # preference to 0 in case the list is too wide.
+            y = wy
+            if y + self.height > win.height:
+                y = win.height - self.height
+            if y < 0:
+                y = 0
+            self.y = y
+
+            # determine if we display the dropdown to the left or to the right
+            w_left = wx - self.width
+            w_right = win.width - (wx + self.width)
+            if w_left > 0:
+                self.right = wx
+            elif w_right > 0:
+                self.x = wright
+            else:
+                # none of both top/bottom have enough place to display the
+                # widget at the current size. Take the best side, and fit to
+                # it.
+                width = max(w_left, w_right)
+                if width == w_right:
+                    self.x = wright
+                    self.width = win.width - wright
+                else:
+                    self.right = wx
+                    self.width = wx
+                    
 
 if __name__ == '__main__':
     from kivy.uix.button import Button
+    from kivy.uix.floatlayout import FloatLayout
     from kivy.base import runTouchApp
 
-    def show_dropdown(button, *largs):
-        dp = DropDown()
+    # vertical is the default
+    verticalDropdown=DropDown()
+    horizontalDropdown=DropDown(orientation='horizontal', auto_height=True)
+
+    def show_dropdown_ver(button, *largs):
+        show_dropdown(verticalDropdown, button, True, *largs)
+
+    def show_dropdown_hor(button, *largs):
+        show_dropdown(horizontalDropdown, button, False, *largs)
+
+    def show_dropdown(dp, button, vertical, *largs):
         dp.bind(on_select=lambda instance, x: setattr(button, 'text', x))
         for i in range(10):
-            item = Button(text='hello %d' % i, size_hint_y=None, height=44)
+            if vertical:
+                item = Button(text='hello %d' % i, size_hint_y=None, height=44)
+            else:
+                item = Button(text='hello %d' % i, size_hint_x=None, width=100)
             item.bind(on_release=lambda btn: dp.select(btn.text))
             dp.add_widget(item)
         dp.open(button)
 
-    def touch_move(instance, touch):
+    def touch_move_hor(instance, touch):
         instance.center = touch.pos
 
-    btn = Button(text='SHOW', size_hint=(None, None), pos=(300, 200))
-    btn.bind(on_release=show_dropdown, on_touch_move=touch_move)
+    def touch_move_ver(instance, touch):
+        instance.center = touch.pos
 
-    runTouchApp(btn)
+    layout = FloatLayout(size_hint=(1, 1))
+
+    horbtn = Button(text='SHOW HOR', size_hint=(None, None), height=120, pos=(200, 300))
+    horbtn.bind(on_release=show_dropdown_hor, on_touch_move=touch_move_hor)
+
+    verbtn = Button(text='SHOW VER', size_hint=(None, None), pos=(300, 200))
+    verbtn.bind(on_release=show_dropdown_ver, on_touch_move=touch_move_ver)
+
+
+    layout.add_widget(horbtn)
+    layout.add_widget(verbtn)
+
+    runTouchApp(layout)
